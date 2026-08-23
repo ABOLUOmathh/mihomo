@@ -1,0 +1,150 @@
+name: Custom SOCKS5 WebSocket Release
+
+on:
+  push:
+    branches:
+      - feat/socks5-websocket
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/custom-socks-ws-release.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: custom-socks-ws-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            goamd64: v1
+            asset: mihomo-windows-amd64-compatible
+            ext: zip
+
+          - goos: windows
+            goarch: "386"
+            goamd64: ""
+            asset: mihomo-windows-386
+            ext: zip
+
+          - goos: windows
+            goarch: arm64
+            goamd64: ""
+            asset: mihomo-windows-arm64
+            ext: zip
+
+          - goos: darwin
+            goarch: amd64
+            goamd64: v1
+            asset: mihomo-darwin-amd64-compatible
+            ext: gz
+
+          - goos: darwin
+            goarch: arm64
+            goamd64: ""
+            asset: mihomo-darwin-arm64
+            ext: gz
+
+          - goos: linux
+            goarch: amd64
+            goamd64: v1
+            asset: mihomo-linux-amd64-compatible
+            ext: gz
+
+          - goos: linux
+            goarch: arm64
+            goamd64: ""
+            asset: mihomo-linux-arm64
+            ext: gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-download-base-url: https://github.com/MetaCubeX/go/releases/download/build
+          go-version: "1.26"
+
+      - name: Build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOAMD64: ${{ matrix.goamd64 }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+
+          VERSION="custom-socks-ws-${GITHUB_SHA::7}"
+          BUILDTIME="$(date -u)"
+
+          go build \
+            -tags "with_gvisor" \
+            -trimpath \
+            -ldflags "-X 'github.com/metacubex/mihomo/constant.Version=${VERSION}' -X 'github.com/metacubex/mihomo/constant.BuildTime=${BUILDTIME}' -w -s -buildid=" \
+            -o "${{ matrix.asset }}${{ matrix.goos == 'windows' && '.exe' || '' }}" \
+            .
+
+          mkdir -p release
+
+          if [ "${{ matrix.ext }}" = "zip" ]; then
+            zip -j \
+              "release/${{ matrix.asset }}.zip" \
+              "${{ matrix.asset }}.exe"
+          else
+            gzip -c \
+              "${{ matrix.asset }}" \
+              > "release/${{ matrix.asset }}.gz"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: release/*
+
+  release:
+    name: Publish custom Mihomo
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Show release files
+        run: ls -lh release
+
+      - name: Remove previous custom release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete custom-socks-ws \
+            --repo "${{ github.repository }}" \
+            --yes \
+            --cleanup-tag || true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: custom-socks-ws
+          target_commitish: ${{ github.sha }}
+          name: Custom SOCKS5 WebSocket Mihomo
+          prerelease: true
+          files: release/*
