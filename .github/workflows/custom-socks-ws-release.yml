@@ -1,0 +1,362 @@
+name: Custom SOCKS5 WebSocket Versioned Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Immutable release tag, e.g. v1.19.30-custom.1"
+        required: true
+        type: string
+
+      source_ref:
+        description: "Custom source branch or commit to release"
+        required: true
+        default: "feat/socks5-websocket"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: custom-socks-ws-versioned-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      base_tag: ${{ steps.meta.outputs.base_tag }}
+      source_sha: ${{ steps.meta.outputs.source_sha }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Validate version and upstream base
+        id: meta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ inputs.version }}"
+
+          if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-custom\.[1-9][0-9]*$ ]]; then
+            echo "Invalid version: ${VERSION}"
+            echo "Expected format: vX.Y.Z-custom.N"
+            exit 1
+          fi
+
+          BASE_TAG="${VERSION%-custom.*}"
+          SOURCE_SHA="$(git rev-parse HEAD)"
+
+          echo "Release version: ${VERSION}"
+          echo "Requested source ref: ${{ inputs.source_ref }}"
+          echo "Resolved source commit: ${SOURCE_SHA}"
+          echo "Expected upstream base: ${BASE_TAG}"
+
+          git fetch --force \
+            https://github.com/MetaCubeX/mihomo.git \
+            "refs/tags/${BASE_TAG}:refs/tags/${BASE_TAG}" \
+            "refs/heads/Meta:refs/remotes/release-upstream/Meta"
+
+          BASE_SHA="$(git rev-parse "${BASE_TAG}^{commit}")"
+          UPSTREAM_META_SHA="$(git rev-parse refs/remotes/release-upstream/Meta)"
+          MERGE_BASE="$(git merge-base "${SOURCE_SHA}" "${UPSTREAM_META_SHA}")"
+
+          if [[ "${MERGE_BASE}" != "${BASE_SHA}" ]]; then
+            echo "Custom source does not have the exact expected upstream base."
+            echo "Expected base tag: ${BASE_TAG}"
+            echo "Expected base SHA: ${BASE_SHA}"
+            echo "Actual upstream merge-base: ${MERGE_BASE}"
+            exit 1
+          fi
+
+          if git ls-remote \
+            --exit-code \
+            --tags \
+            origin \
+            "refs/tags/${VERSION}" \
+            >/dev/null 2>&1; then
+            echo "Tag ${VERSION} already exists."
+            echo "Versioned custom releases are immutable."
+            exit 1
+          fi
+
+          if gh release view \
+            "${VERSION}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            >/dev/null 2>&1; then
+            echo "Release ${VERSION} already exists."
+            echo "Versioned custom releases are immutable."
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "base_tag=${BASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=${SOURCE_SHA}" >> "${GITHUB_OUTPUT}"
+
+  test:
+    name: Release gate tests
+    needs: validate
+    runs-on: ubuntu-latest
+
+    env:
+      CGO_ENABLED: "0"
+      GOTOOLCHAIN: local
+      SKIP_CONCURRENT_TEST: "1"
+      SKIP_INTEROP_TEST: "1"
+
+    steps:
+      - name: Checkout validated source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-download-base-url: https://github.com/MetaCubeX/go/releases/download/build
+          go-version: "1.26"
+
+      - name: Run custom SOCKS5 WebSocket regression tests
+        run: |
+          go test ./adapter/outbound \
+            -run '^TestSocks5' \
+            -v \
+            -count=1
+
+      - name: Run full test suite
+        run: |
+          go test ./... \
+            -count=1
+
+      - name: Run full test suite with gVisor
+        run: |
+          go test ./... \
+            -count=1 \
+            -tags "with_gvisor"
+
+  build:
+    name: Build ${{ matrix.asset }}
+    needs:
+      - validate
+      - test
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            goamd64: v1
+            asset: mihomo-windows-amd64-compatible
+            ext: zip
+
+          - goos: windows
+            goarch: "386"
+            goamd64: ""
+            asset: mihomo-windows-386
+            ext: zip
+
+          - goos: windows
+            goarch: arm64
+            goamd64: ""
+            asset: mihomo-windows-arm64
+            ext: zip
+
+          - goos: darwin
+            goarch: amd64
+            goamd64: v1
+            asset: mihomo-darwin-amd64-compatible
+            ext: gz
+
+          - goos: darwin
+            goarch: arm64
+            goamd64: ""
+            asset: mihomo-darwin-arm64
+            ext: gz
+
+          - goos: linux
+            goarch: amd64
+            goamd64: v1
+            asset: mihomo-linux-amd64-compatible
+            ext: gz
+
+          - goos: linux
+            goarch: arm64
+            goamd64: ""
+            asset: mihomo-linux-arm64
+            ext: gz
+
+    steps:
+      - name: Checkout validated source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-download-base-url: https://github.com/MetaCubeX/go/releases/download/build
+          go-version: "1.26"
+
+      - name: Build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOAMD64: ${{ matrix.goamd64 }}
+          CGO_ENABLED: "0"
+          GOTOOLCHAIN: local
+        run: |
+          set -euo pipefail
+
+          RELEASE_VERSION="${{ needs.validate.outputs.version }}"
+          BINARY_VERSION="${RELEASE_VERSION#v}"
+          BUILDTIME="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          BINARY="${{ matrix.asset }}"
+
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            BINARY="${BINARY}.exe"
+          fi
+
+          go build \
+            -tags "with_gvisor" \
+            -trimpath \
+            -ldflags "-X 'github.com/metacubex/mihomo/constant.Version=${BINARY_VERSION}' -X 'github.com/metacubex/mihomo/constant.BuildTime=${BUILDTIME}' -w -s -buildid=" \
+            -o "${BINARY}" \
+            .
+
+          mkdir -p release
+
+          if [[ "${{ matrix.ext }}" == "zip" ]]; then
+            zip -j \
+              "release/${{ matrix.asset }}.zip" \
+              "${BINARY}"
+          else
+            gzip -c \
+              "${BINARY}" \
+              > "release/${{ matrix.asset }}.gz"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish immutable custom release
+    needs:
+      - validate
+      - test
+      - build
+
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Verify assets and calculate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expected=(
+            "mihomo-windows-amd64-compatible.zip"
+            "mihomo-windows-386.zip"
+            "mihomo-windows-arm64.zip"
+            "mihomo-darwin-amd64-compatible.gz"
+            "mihomo-darwin-arm64.gz"
+            "mihomo-linux-amd64-compatible.gz"
+            "mihomo-linux-arm64.gz"
+          )
+
+          for file in "${expected[@]}"; do
+            if [[ ! -f "release/${file}" ]]; then
+              echo "Missing release asset: ${file}"
+              exit 1
+            fi
+          done
+
+          (
+            cd release
+            sha256sum "${expected[@]}" > checksums.txt
+          )
+
+          ls -lh release
+          cat release/checksums.txt
+
+      - name: Recheck release immutability
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ needs.validate.outputs.version }}"
+
+          if gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${VERSION}" \
+            >/dev/null 2>&1; then
+            echo "Tag ${VERSION} appeared after validation."
+            echo "Refusing to overwrite an existing version."
+            exit 1
+          fi
+
+          if gh release view \
+            "${VERSION}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            >/dev/null 2>&1; then
+            echo "Release ${VERSION} appeared after validation."
+            echo "Refusing to overwrite an existing version."
+            exit 1
+          fi
+
+      - name: Publish versioned prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ needs.validate.outputs.version }}"
+          BASE_TAG="${{ needs.validate.outputs.base_tag }}"
+
+          cat > release-notes.md <<EOF_NOTES
+          Custom Mihomo build with SOCKS5-over-WebSocket support.
+
+          Upstream base: ${BASE_TAG}
+          Custom version: ${VERSION}
+          Source commit: ${{ needs.validate.outputs.source_sha }}
+
+          This release is immutable. Existing versioned tags and releases are never overwritten.
+          EOF_NOTES
+
+          gh release create \
+            "${VERSION}" \
+            release/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${{ needs.validate.outputs.source_sha }}" \
+            --title "Mihomo ${VERSION}" \
+            --prerelease \
+            --notes-file release-notes.md
