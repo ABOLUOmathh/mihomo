@@ -1,0 +1,76 @@
+name: Custom SOCKS5 WebSocket CI
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - feat/socks5-websocket
+      - "sync/mihomo-*"
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/custom-socks-ws-ci.yml"
+      - ".github/workflows/custom-socks-ws-release.yml"
+
+  pull_request:
+    branches:
+      - feat/socks5-websocket
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/custom-socks-ws-ci.yml"
+      - ".github/workflows/custom-socks-ws-release.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: custom-socks-ws-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Custom SOCKS5 WebSocket tests
+    runs-on: ubuntu-latest
+
+    env:
+      CGO_ENABLED: "0"
+      GOTOOLCHAIN: local
+      SKIP_CONCURRENT_TEST: "1"
+      SKIP_INTEROP_TEST: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-download-base-url: https://github.com/MetaCubeX/go/releases/download/build
+          go-version: "1.26"
+
+      - name: Verify Go
+        run: |
+          go version
+          go env
+
+      - name: Run custom SOCKS5 WebSocket regression tests
+        run: |
+          go test ./adapter/outbound \
+            -run '^TestSocks5' \
+            -v \
+            -count=1
+
+      - name: Run full test suite
+        run: |
+          go test ./... \
+            -count=1
+
+      - name: Run full test suite with gVisor
+        run: |
+          go test ./... \
+            -count=1 \
+            -tags "with_gvisor"
