@@ -200,11 +200,17 @@ func (ss *ShadowSocks) StreamConnContext(ctx context.Context, c net.Conn, metada
 		}
 	}
 	if ss.heySocks2022 != nil {
+		var destination M.Socksaddr
+
 		if metadata.NetWork == C.UDP {
-			return nil, fmt.Errorf("heysocks ss2022 stage1: UDP and UDP-over-TCP are not implemented")
+			if !ss.option.UDPOverTCP {
+				return nil, fmt.Errorf("heysocks ss2022: native UDP is not implemented; enable udp-over-tcp")
+			}
+			destination = uot.RequestDestination(uint8(ss.option.UDPOverTCPVersion))
+		} else {
+			destination = M.ParseSocksaddrHostPort(metadata.String(), metadata.DstPort)
 		}
 
-		destination := M.ParseSocksaddrHostPort(metadata.String(), metadata.DstPort)
 		if useEarly {
 			return ss.heySocks2022.DialEarlyConn(c, destination), nil
 		}
@@ -263,8 +269,8 @@ func (ss *ShadowSocks) listenPacketContext(ctx context.Context) (net.PacketConn,
 
 // ListenPacketContext implements C.ProxyAdapter
 func (ss *ShadowSocks) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (_ C.PacketConn, err error) {
-	if ss.heySocks2022 != nil {
-		return nil, fmt.Errorf("heysocks ss2022 stage1: UDP is not implemented")
+	if ss.heySocks2022 != nil && !ss.option.UDPOverTCP {
+		return nil, fmt.Errorf("heysocks ss2022: native UDP is not implemented; enable udp-over-tcp")
 	}
 
 	if ss.option.UDPOverTCP {
@@ -307,7 +313,7 @@ func (ss *ShadowSocks) ProxyInfo() C.ProxyInfo {
 
 // SupportUOT implements C.ProxyAdapter
 func (ss *ShadowSocks) SupportUOT() bool {
-	return ss.heySocks2022 == nil && ss.option.UDPOverTCP
+	return ss.option.UDPOverTCP
 }
 
 func (ss *ShadowSocks) Close() error {
