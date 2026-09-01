@@ -14,6 +14,7 @@ import (
 	"github.com/metacubex/mihomo/transport/jls"
 	"github.com/metacubex/mihomo/transport/kcptun"
 	"github.com/metacubex/mihomo/transport/restls"
+	"github.com/metacubex/mihomo/transport/shadowsocks/heysocks2022"
 	"github.com/metacubex/mihomo/transport/shadowtls"
 	obfs "github.com/metacubex/mihomo/transport/simple-obfs"
 	v2rayObfs "github.com/metacubex/mihomo/transport/v2ray-plugin"
@@ -26,7 +27,8 @@ import (
 
 type ShadowSocks struct {
 	*Base
-	method shadowsocks.Method
+	method       shadowsocks.Method
+	heySocks2022 *heysocks2022.Method
 
 	option *ShadowSocksOption
 	// obfs
@@ -47,6 +49,7 @@ type ShadowSocksOption struct {
 	Port              int            `proxy:"port"`
 	Password          string         `proxy:"password"`
 	Cipher            string         `proxy:"cipher"`
+	E                 bool           `proxy:"e,omitempty"`
 	UDP               bool           `proxy:"udp,omitempty"`
 	Plugin            string         `proxy:"plugin,omitempty"`
 	PluginOpts        map[string]any `proxy:"plugin-opts,omitempty"`
@@ -196,6 +199,18 @@ func (ss *ShadowSocks) StreamConnContext(ctx context.Context, c net.Conn, metada
 			defer done(&err)
 		}
 	}
+	if ss.heySocks2022 != nil {
+		if metadata.NetWork == C.UDP {
+			return nil, fmt.Errorf("heysocks ss2022 stage1: UDP and UDP-over-TCP are not implemented")
+		}
+
+		destination := M.ParseSocksaddrHostPort(metadata.String(), metadata.DstPort)
+		if useEarly {
+			return ss.heySocks2022.DialEarlyConn(c, destination), nil
+		}
+		return ss.heySocks2022.DialConn(c, destination)
+	}
+
 	if metadata.NetWork == C.UDP && ss.option.UDPOverTCP {
 		uotDestination := uot.RequestDestination(uint8(ss.option.UDPOverTCPVersion))
 		if useEarly {
@@ -248,6 +263,10 @@ func (ss *ShadowSocks) listenPacketContext(ctx context.Context) (net.PacketConn,
 
 // ListenPacketContext implements C.ProxyAdapter
 func (ss *ShadowSocks) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (_ C.PacketConn, err error) {
+	if ss.heySocks2022 != nil {
+		return nil, fmt.Errorf("heysocks ss2022 stage1: UDP is not implemented")
+	}
+
 	if ss.option.UDPOverTCP {
 		var c net.Conn
 		c, err = ss.DialContext(ctx, metadata)
@@ -288,7 +307,7 @@ func (ss *ShadowSocks) ProxyInfo() C.ProxyInfo {
 
 // SupportUOT implements C.ProxyAdapter
 func (ss *ShadowSocks) SupportUOT() bool {
-	return ss.option.UDPOverTCP
+	return ss.heySocks2022 == nil && ss.option.UDPOverTCP
 }
 
 func (ss *ShadowSocks) Close() error {
@@ -300,12 +319,30 @@ func (ss *ShadowSocks) Close() error {
 
 func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
+
+	normalizedPassword, blackstone, err := heysocks2022.NormalizePassword(option.Cipher, option.Password)
+	if err != nil {
+		return nil, fmt.Errorf("ss %s BLACKSTONE compatibility initialize error: %w", addr, err)
+	}
+	if blackstone {
+		option.Password = normalizedPassword
+		option.E = true
+	}
+
 	method, err := shadowsocks.CreateMethod(option.Cipher, shadowsocks.MethodOptions{
 		Password: option.Password,
 		TimeFunc: ntp.Now,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ss %s cipher: %s initialize error: %w", addr, option.Cipher, err)
+	}
+
+	var heySocks2022Method *heysocks2022.Method
+	if option.E {
+		heySocks2022Method, err = heysocks2022.New(option.Cipher, option.Password)
+		if err != nil {
+			return nil, fmt.Errorf("ss %s HeySocks SS2022 initialize error: %w", addr, err)
+		}
 	}
 
 	var v2rayOption *v2rayObfs.Option
@@ -508,7 +545,8 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
 		}),
-		method: method,
+		method:       method,
+		heySocks2022: heySocks2022Method,
 
 		option:          &option,
 		obfsMode:        obfsMode,
