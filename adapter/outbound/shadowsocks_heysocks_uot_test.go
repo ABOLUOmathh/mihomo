@@ -112,3 +112,30 @@ func TestHeySocksExplicitEUOTLegacy(t *testing.T) {
 		t.Fatal("explicit e:true UOT should be supported")
 	}
 }
+
+func TestHeySocksBlackstoneUOTDefaultsToLegacy(t *testing.T) {
+	ss, err := NewShadowSocks(ShadowSocksOption{
+		Name:       "heysocks-blackstone-default-uot-test",
+		Server:     "127.0.0.1",
+		Port:       443,
+		Cipher:     heysocks2022.MethodAES128GCM,
+		Password:   testHeySocks2022Password() + heysocks2022.BlackstoneSuffix,
+		UDP:        true,
+		UDPOverTCP: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ss.option.UDPOverTCPVersion != uot.LegacyVersion {
+		t.Fatalf(
+			"default UOT version = %d, want legacy version %d",
+			ss.option.UDPOverTCPVersion,
+			uot.LegacyVersion,
+		)
+	}
+
+	if !ss.SupportUOT() {
+		t.Fatal("BLACKSTONE default UOT should be supported")
+	}
+}

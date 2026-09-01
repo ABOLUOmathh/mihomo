@@ -283,3 +283,56 @@ func TestConvertsV2RayVmessBase64HTTPRemappedToH2Transport(t *testing.T) {
 	_, err = adapter.ParseProxy(proxies[0])
 	assert.NoError(t, err)
 }
+
+func TestConvertsV2RayBlackstoneFullBase64UOT(t *testing.T) {
+	const uri = "ss://MjAyMi1ibGFrZTMtYWVzLTEyOC1nY206RVJFUkVSRVJFUkVSRVJFUkVSRVJFUT09OklpSWlJaUlpSWlJaUlpSWlJaUlpSWc9PSNCTEFDS1NUT05FQGV4YW1wbGUuY29tOjQ0Mw?uot=1#blackstone-uot"
+
+	const password = "EREREREREREREREREREREQ==:IiIiIiIiIiIiIiIiIiIiIg==#BLACKSTONE"
+
+	proxies, err := ConvertsV2Ray([]byte(uri))
+
+	assert.NoError(t, err)
+
+	if !assert.Len(t, proxies, 1) {
+		return
+	}
+
+	proxy := proxies[0]
+
+	assert.Equal(t, "blackstone-uot", proxy["name"])
+	assert.Equal(t, "ss", proxy["type"])
+	assert.Equal(t, "example.com", proxy["server"])
+	assert.Equal(t, "443", proxy["port"])
+	assert.Equal(t, "2022-blake3-aes-128-gcm", proxy["cipher"])
+	assert.Equal(t, password, proxy["password"])
+	assert.Equal(t, true, proxy["udp"])
+	assert.Equal(t, true, proxy["udp-over-tcp"])
+
+	_, err = adapter.ParseProxy(proxy)
+	assert.NoError(t, err)
+}
+
+func TestConvertsV2RaySSFullBase64Regression(t *testing.T) {
+	const uri = "ss://YWVzLTEyOC1nY206cGFzc3dvcmQxMjNAZXhhbXBsZS5jb206ODM4OA#standard-ss"
+
+	proxies, err := ConvertsV2Ray([]byte(uri))
+
+	assert.NoError(t, err)
+
+	if !assert.Len(t, proxies, 1) {
+		return
+	}
+
+	proxy := proxies[0]
+
+	assert.Equal(t, "standard-ss", proxy["name"])
+	assert.Equal(t, "ss", proxy["type"])
+	assert.Equal(t, "example.com", proxy["server"])
+	assert.Equal(t, "8388", proxy["port"])
+	assert.Equal(t, "aes-128-gcm", proxy["cipher"])
+	assert.Equal(t, "password123", proxy["password"])
+	assert.Equal(t, true, proxy["udp"])
+
+	_, err = adapter.ParseProxy(proxy)
+	assert.NoError(t, err)
+}
