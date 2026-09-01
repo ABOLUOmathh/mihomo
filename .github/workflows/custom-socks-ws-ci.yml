@@ -1,11 +1,12 @@
-name: Custom SOCKS5 WebSocket CI
+name: Custom Mihomo Compatibility CI
 
 on:
   workflow_dispatch:
 
   push:
     branches:
-      - feat/socks5-websocket
+      - feat/heysocks-sharelink
+      - chore/custom-2-release-prep
       - "sync/mihomo-*"
     paths:
       - "**/*.go"
@@ -16,7 +17,8 @@ on:
 
   pull_request:
     branches:
-      - feat/socks5-websocket
+      - feat/heysocks-sharelink
+      - chore/custom-2-release-prep
     paths:
       - "**/*.go"
       - "go.mod"
@@ -28,12 +30,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: custom-socks-ws-ci-${{ github.ref }}
+  group: custom-mihomo-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: Custom SOCKS5 WebSocket tests
+    name: Custom compatibility tests
     runs-on: ubuntu-latest
 
     env:
@@ -57,10 +59,24 @@ jobs:
           go version
           go env
 
-      - name: Run custom SOCKS5 WebSocket regression tests
+      - name: Run custom protocol regression tests
         run: |
           go test ./adapter/outbound \
             -run '^TestSocks5' \
+            -v \
+            -count=1
+
+          go test ./adapter/outbound \
+            -run '^TestHeySocks.*UOT' \
+            -v \
+            -count=1
+
+          go test ./transport/shadowsocks/heysocks2022 \
+            -v \
+            -count=1
+
+          go test ./common/convert \
+            -run '^TestConvertsV2Ray(BlackstoneFullBase64UOT|SSFullBase64Regression)$' \
             -v \
             -count=1
 

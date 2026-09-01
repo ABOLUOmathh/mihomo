@@ -1,24 +1,24 @@
-name: Custom SOCKS5 WebSocket Versioned Release
+name: Custom Mihomo Versioned Release
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Immutable release tag, e.g. v1.19.30-custom.1"
+        description: "Immutable release tag, e.g. v1.19.30-custom.2"
         required: true
         type: string
 
       source_ref:
         description: "Custom source branch or commit to release"
         required: true
-        default: "feat/socks5-websocket"
+        default: "chore/custom-2-release-prep"
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: custom-socks-ws-versioned-release
+  group: custom-mihomo-versioned-release
   cancel-in-progress: false
 
 jobs:
@@ -126,10 +126,24 @@ jobs:
           go-download-base-url: https://github.com/MetaCubeX/go/releases/download/build
           go-version: "1.26"
 
-      - name: Run custom SOCKS5 WebSocket regression tests
+      - name: Run custom protocol regression tests
         run: |
           go test ./adapter/outbound \
             -run '^TestSocks5' \
+            -v \
+            -count=1
+
+          go test ./adapter/outbound \
+            -run '^TestHeySocks.*UOT' \
+            -v \
+            -count=1
+
+          go test ./transport/shadowsocks/heysocks2022 \
+            -v \
+            -count=1
+
+          go test ./common/convert \
+            -run '^TestConvertsV2Ray(BlackstoneFullBase64UOT|SSFullBase64Regression)$' \
             -v \
             -count=1
 
@@ -343,11 +357,23 @@ jobs:
           BASE_TAG="${{ needs.validate.outputs.base_tag }}"
 
           cat > release-notes.md <<EOF_NOTES
-          Custom Mihomo build with SOCKS5-over-WebSocket support.
+          Custom Mihomo build based on ${BASE_TAG}.
 
-          Upstream base: ${BASE_TAG}
           Custom version: ${VERSION}
           Source commit: ${{ needs.validate.outputs.source_sha }}
+
+          Custom features:
+          - SOCKS5-over-WebSocket transport support
+          - SOCKS5-over-WebSocket TLS, Host header, and authentication support
+          - HeySocks / BLACKSTONE Shadowsocks 2022 compatibility
+          - BLACKSTONE automatic #BLACKSTONE password marker detection
+          - BLACKSTONE UDP-over-TCP using UOT legacy version 1
+          - HeySocks full-base64 ss:// share-link import with ?uot=1 support
+
+          Compatibility notes:
+          - Standard Shadowsocks behavior remains available for non-BLACKSTONE nodes.
+          - Native BLACKSTONE UDP is not implemented; BLACKSTONE UDP uses UOT over TCP.
+          - Existing v1.19.30-custom.1 remains immutable and is not replaced.
 
           This release is immutable. Existing versioned tags and releases are never overwritten.
           EOF_NOTES
