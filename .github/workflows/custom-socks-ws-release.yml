@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Immutable release tag, e.g. v1.19.30-custom.3"
+        description: "Immutable release tag, e.g. v1.19.30-custom.4"
         required: true
         type: string
 
       source_ref:
         description: "Custom source branch or commit to release"
         required: true
-        default: "chore/custom-3-release-prep"
+        default: "release/v1.19.30-custom.4"
         type: string
 
 permissions:
@@ -574,9 +574,11 @@ jobs:
           Compatibility notes:
           - Standard Shadowsocks behavior remains available for non-BLACKSTONE nodes.
           - BLACKSTONE Shadowsocks 2022 native UDP is not implemented; it uses UOT over TCP.
-          - HeySocks XHTTP E/H non-default semantics remain fail-closed until native behavior is established.
+          - HeySocks XHTTP e=true is accepted and verified with a real native-compatible node.
+          - HeySocks XHTTP non-empty h remains fail-closed until native behavior is established.
           - Existing v1.19.30-custom.1 remains immutable and is not replaced.
           - Existing v1.19.30-custom.2 remains immutable and is not replaced.
+          - Existing v1.19.30-custom.3 remains immutable and is not replaced.
 
           This release is immutable. Existing versioned tags and releases are never overwritten.
           EOF_NOTES
