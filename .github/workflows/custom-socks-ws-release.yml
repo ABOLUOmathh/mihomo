@@ -339,15 +339,15 @@ jobs:
           path: release/*
           if-no-files-found: error
 
-  release:
-    name: Publish immutable custom release
+  audit:
+    name: Audit release artifacts
     needs:
       - validate
       - test
       - build
 
     permissions:
-      contents: write
+      contents: read
 
     runs-on: ubuntu-latest
 
@@ -428,6 +428,92 @@ jobs:
           echo "Release asset count: ${#assets[@]}"
           ls -lh release
           cat release/checksums.txt
+
+
+      - name: Upload verified release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: custom-release-bundle
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish immutable custom release
+    needs:
+      - validate
+      - audit
+
+    environment:
+      name: custom-release
+
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download verified release bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: custom-release-bundle
+          path: release
+
+      - name: Verify promoted release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_VERSION="${{ needs.validate.outputs.version }}"
+          EXPECTED_ASSET_COUNT=45
+          EXPECTED_TOTAL_FILE_COUNT=46
+
+          test -f release/checksums.txt
+
+          mapfile -t assets < <(
+            find release \
+              -maxdepth 1 \
+              -type f \
+              \( \
+                -name "mihomo-*-${RELEASE_VERSION}.gz" \
+                -o \
+                -name "mihomo-*-${RELEASE_VERSION}.zip" \
+              \) \
+              -printf '%f\n' \
+              | sort
+          )
+
+          mapfile -t all_files < <(
+            find release \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f\n' \
+              | sort
+          )
+
+          if (( ${#assets[@]} != EXPECTED_ASSET_COUNT )); then
+            echo "PROMOTION_ASSET_COUNT_AUDIT=FAIL"
+            echo "Expected: ${EXPECTED_ASSET_COUNT}"
+            echo "Actual:   ${#assets[@]}"
+            printf '%s\n' "${assets[@]}"
+            exit 1
+          fi
+
+          if (( ${#all_files[@]} != EXPECTED_TOTAL_FILE_COUNT )); then
+            echo "PROMOTION_TOTAL_FILE_COUNT_AUDIT=FAIL"
+            echo "Expected: ${EXPECTED_TOTAL_FILE_COUNT}"
+            echo "Actual:   ${#all_files[@]}"
+            printf '%s\n' "${all_files[@]}"
+            exit 1
+          fi
+
+          (
+            cd release
+            sha256sum -c checksums.txt
+          )
+
+          echo "PROMOTION_ASSET_COUNT_AUDIT=PASS"
+          echo "PROMOTION_CHECKSUM_AUDIT=PASS"
 
       - name: Recheck release immutability
         shell: bash
