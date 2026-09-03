@@ -228,3 +228,12 @@ jobs:
           stat -c \
             'CROSS_BUILD_BYTES=%s' \
             "${OUTPUT}"
+
+      - name: Upload Android smoke binary
+        if: ${{ matrix.goos == 'android' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: custom3-smoke-${{ matrix.name }}
+          path: /tmp/mihomo-${{ matrix.name }}
+          if-no-files-found: error
+          retention-days: 7
