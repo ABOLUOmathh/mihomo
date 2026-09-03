@@ -380,12 +380,6 @@ func NewHeySocksXHTTP(
 		option.Cipher = "aes-128-ctr"
 	}
 
-	if option.E {
-		return nil, fmt.Errorf(
-			"heysocks xhttp: option e=true is not supported",
-		)
-	}
-
 	if option.H != "" {
 		return nil, fmt.Errorf(
 			"heysocks xhttp: option h is not supported",

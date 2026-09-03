@@ -303,47 +303,47 @@ func TestHeySocksXHTTPProxyInfoDialerProxy(
 	}
 }
 
-func TestHeySocksXHTTPRejectsUnsupportedEH(
+func TestHeySocksXHTTPAllowsETrue(
 	t *testing.T,
 ) {
-	tests := []struct {
-		name string
-		e    bool
-		h    string
-	}{
-		{
-			name: "e-true",
-			e:    true,
-		},
-		{
-			name: "h-non-empty",
-			h:    "synthetic-h",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(
-			tt.name,
-			func(t *testing.T) {
-				_, err :=
-					NewHeySocksXHTTP(
-						HeySocksXHTTPOption{
-							Name:     "unsupported-eh",
-							Server:   "127.0.0.1",
-							Port:     443,
-							Password: heySocksXHTTPTestPassword,
-							Cipher:   "aes-128-ctr",
-							E:        tt.e,
-							H:        tt.h,
-						},
-					)
-
-				if err == nil {
-					t.Fatal(
-						"expected unsupported E/H error",
-					)
-				}
+	_, err :=
+		NewHeySocksXHTTP(
+			HeySocksXHTTPOption{
+				Name:     "e-pass-through",
+				Server:   "127.0.0.1",
+				Port:     443,
+				Password: heySocksXHTTPTestPassword,
+				Cipher:   "aes-128-ctr",
+				E:        true,
 			},
+		)
+
+	if err != nil {
+		t.Fatalf(
+			"e:true should be accepted: %v",
+			err,
+		)
+	}
+}
+
+func TestHeySocksXHTTPRejectsNonEmptyH(
+	t *testing.T,
+) {
+	_, err :=
+		NewHeySocksXHTTP(
+			HeySocksXHTTPOption{
+				Name:     "unsupported-h",
+				Server:   "127.0.0.1",
+				Port:     443,
+				Password: heySocksXHTTPTestPassword,
+				Cipher:   "aes-128-ctr",
+				H:        "synthetic-h",
+			},
+		)
+
+	if err == nil {
+		t.Fatal(
+			"expected unsupported H error",
 		)
 	}
 }
