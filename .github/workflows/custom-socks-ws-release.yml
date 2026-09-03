@@ -161,6 +161,10 @@ jobs:
             -v \
             -count=1
 
+      - name: Run XHTTP race tests
+        env:
+          CGO_ENABLED: "1"
+        run: |
           go test -race ./transport/heysocks/xhttp \
             -count=1
 
