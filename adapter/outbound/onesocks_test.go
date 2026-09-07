@@ -6,7 +6,7 @@ import (
 	C "github.com/metacubex/mihomo/constant"
 )
 
-func TestNewOneSocksStageD1(t *testing.T) {
+func TestNewOneSocksDefaultsAndNativeUDP(t *testing.T) {
 	outbound, err := NewOneSocks(
 		OneSocksOption{
 			Name:       "os-test",
@@ -51,11 +51,11 @@ func TestNewOneSocksStageD1(t *testing.T) {
 		)
 	}
 
-	if outbound.SupportUDP() {
-		t.Fatal("UDP must remain disabled in Stage D1")
+	if !outbound.SupportUDP() {
+		t.Fatal("native UDP must be supported")
 	}
 
 	if outbound.SupportUOT() {
-		t.Fatal("UOT must remain disabled in Stage D1")
+		t.Fatal("UOT must remain disabled when udp-over-tcp is false")
 	}
 }

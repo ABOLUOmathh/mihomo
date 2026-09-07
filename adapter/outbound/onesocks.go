@@ -10,6 +10,7 @@ import (
 	N "github.com/metacubex/mihomo/common/net"
 	C "github.com/metacubex/mihomo/constant"
 	heysocksonesocks "github.com/metacubex/mihomo/transport/heysocks/onesocks"
+	"github.com/metacubex/mihomo/transport/socks5"
 
 	M "github.com/metacubex/sing/common/metadata"
 	"github.com/metacubex/sing/common/uot"
@@ -173,69 +174,238 @@ func (o *OneSocks) DialContext(
 	return NewConn(conn, o), nil
 }
 
+func (o *OneSocks) listenPacketContext(
+	ctx context.Context,
+) (net.PacketConn, net.Addr, error) {
+	addr, err := resolveUDPAddr(
+		ctx,
+		"udp",
+		o.addr,
+		o.prefer,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	packetConn, err := o.dialer.ListenPacket(
+		ctx,
+		"udp",
+		"",
+		addr.AddrPort(),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return packetConn, addr, nil
+}
+
+// oneSocksPacketConn mirrors the recovered native ssPacketConn.
+//
+// The inner PacketConn owns OneSocks UDP encryption. This wrapper owns the
+// SOCKS destination/source address framing and fixes the actual network
+// destination to the OneSocks UDP server.
+type oneSocksPacketConn struct {
+	net.PacketConn
+
+	rAddr net.Addr
+}
+
+func (c *oneSocksPacketConn) WriteTo(
+	p []byte,
+	addr net.Addr,
+) (int, error) {
+	packet, err := socks5.EncodeUDPPacket(
+		socks5.ParseAddrToSocksAddr(addr),
+		p,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	// EncodeUDPPacket produces:
+	//
+	//	00 00 00 || SOCKS_ADDR || payload
+	//
+	// Native OneSocks removes the three-byte SOCKS5 UDP prefix before
+	// passing the plaintext into the encrypted PacketConn.
+	if len(packet) < 3 {
+		return 0, fmt.Errorf(
+			"onesocks: invalid encoded UDP packet",
+		)
+	}
+
+	plaintext := packet[3:]
+
+	n, err := c.PacketConn.WriteTo(
+		plaintext,
+		c.rAddr,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	if n != len(plaintext) {
+		return 0, fmt.Errorf(
+			"onesocks: short native UDP plaintext write: wrote=%d want=%d",
+			n,
+			len(plaintext),
+		)
+	}
+
+	return len(p), nil
+}
+
+func (c *oneSocksPacketConn) ReadFrom(
+	p []byte,
+) (int, net.Addr, error) {
+	n, _, err := c.PacketConn.ReadFrom(p)
+	if err != nil {
+		return n, nil, err
+	}
+
+	if n == 0 {
+		return 0, nil, fmt.Errorf(
+			"onesocks: empty native UDP packet",
+		)
+	}
+
+	addr := socks5.SplitAddr(p[:n])
+	if addr == nil {
+		return 0, nil, fmt.Errorf(
+			"onesocks: failed to parse native UDP source address",
+		)
+	}
+
+	// Recovered native ssPacketConn.ReadFrom constructs source net.Addr
+	// values only for IPv4 and IPv6. Domain-form source addresses are
+	// rejected here for wire compatibility.
+	switch addr[0] {
+	case socks5.AtypIPv4, socks5.AtypIPv6:
+	default:
+		return 0, nil, fmt.Errorf(
+			"onesocks: unsupported native UDP source address type %#x",
+			addr[0],
+		)
+	}
+
+	udpAddr := addr.UDPAddr()
+	if udpAddr == nil {
+		return 0, nil, fmt.Errorf(
+			"onesocks: failed to build native UDP source address",
+		)
+	}
+
+	if len(addr) > n {
+		return 0, nil, fmt.Errorf(
+			"onesocks: invalid native UDP source address length",
+		)
+	}
+
+	copy(
+		p,
+		p[len(addr):n],
+	)
+
+	return n - len(addr), udpAddr, nil
+}
+
 func (o *OneSocks) ListenPacketContext(
 	ctx context.Context,
 	metadata *C.Metadata,
 ) (_ C.PacketConn, err error) {
-	if !o.option.UDPOverTCP {
-		return nil, C.ErrNotSupport
-	}
+	if o.option.UDPOverTCP {
+		var conn net.Conn
 
-	var conn net.Conn
+		conn, err = o.DialContext(
+			ctx,
+			metadata,
+		)
+		if err != nil {
+			return nil, err
+		}
 
-	conn, err = o.DialContext(
-		ctx,
-		metadata,
-	)
-	if err != nil {
-		return nil, err
-	}
+		defer func(conn net.Conn) {
+			safeConnClose(conn, err)
+		}(conn)
 
-	defer func(conn net.Conn) {
-		safeConnClose(conn, err)
-	}(conn)
+		if err = o.ResolveUDP(
+			ctx,
+			metadata,
+		); err != nil {
+			return nil, err
+		}
 
-	if err = o.ResolveUDP(
-		ctx,
-		metadata,
-	); err != nil {
-		return nil, err
-	}
+		destination :=
+			M.SocksaddrFromNet(metadata.UDPAddr())
 
-	destination :=
-		M.SocksaddrFromNet(metadata.UDPAddr())
+		if o.option.UDPOverTCPVersion ==
+			uot.LegacyVersion {
+			packetConn := uot.NewConn(
+				conn,
+				uot.Request{},
+			)
 
-	if o.option.UDPOverTCPVersion ==
-		uot.LegacyVersion {
-		packetConn := uot.NewConn(
+			return NewPacketConn(
+				N.NewThreadSafePacketConn(
+					packetConn,
+				),
+				o,
+			), nil
+		}
+
+		packetConn := uot.NewLazyConn(
 			conn,
-			uot.Request{},
+			uot.Request{
+				Destination: destination,
+			},
 		)
 
 		return NewPacketConn(
-			N.NewThreadSafePacketConn(packetConn),
+			N.NewThreadSafePacketConn(
+				packetConn,
+			),
 			o,
 		), nil
 	}
 
-	packetConn := uot.NewLazyConn(
-		conn,
-		uot.Request{
-			Destination: destination,
-		},
-	)
+	packetConn, proxyAddr, err :=
+		o.listenPacketContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	encryptedPacketConn, err :=
+		heysocksonesocks.NewPacketConn(
+			packetConn,
+			o.cipher,
+			o.paddingLen,
+		)
+	if err != nil {
+		_ = packetConn.Close()
+
+		return nil, fmt.Errorf(
+			"onesocks: create native UDP cipher packet connection: %w",
+			err,
+		)
+	}
+
+	packetConn = &oneSocksPacketConn{
+		PacketConn: encryptedPacketConn,
+		rAddr:      proxyAddr,
+	}
 
 	return NewPacketConn(
-		N.NewThreadSafePacketConn(packetConn),
+		packetConn,
 		o,
 	), nil
 }
 
-// Native OneSocks UDP is intentionally deferred.
-// Advertise UDP only when the currently implemented UOT path is usable.
+// SupportUDP implements C.ProxyAdapter.
+//
+// UDP-over-TCP and native OneSocks UDP are both implemented.
 func (o *OneSocks) SupportUDP() bool {
-	return o.option.UDP &&
-		o.option.UDPOverTCP
+	return o.option.UDP
 }
 
 func (o *OneSocks) SupportUOT() bool {

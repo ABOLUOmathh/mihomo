@@ -111,10 +111,10 @@ func TestOneSocksRejectInvalidUOTVersion(t *testing.T) {
 	}
 }
 
-func TestOneSocksNativeUDPStillDisabled(t *testing.T) {
+func TestOneSocksNativeUDPWithoutUOT(t *testing.T) {
 	outbound, err := NewOneSocks(
 		OneSocksOption{
-			Name:       "os-no-native-udp",
+			Name:       "os-native-udp",
 			Server:     "127.0.0.1",
 			Port:       443,
 			Password:   "password",
@@ -126,9 +126,9 @@ func TestOneSocksNativeUDPStillDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if outbound.SupportUDP() {
+	if !outbound.SupportUDP() {
 		t.Fatal(
-			"native UDP must remain disabled",
+			"native UDP must be supported",
 		)
 	}
 
