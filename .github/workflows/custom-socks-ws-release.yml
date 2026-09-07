@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Immutable release tag, e.g. v1.19.30-custom.4"
+        description: "Immutable release tag, e.g. v1.19.30-custom.5"
         required: true
         type: string
 
       source_ref:
         description: "Custom source branch or commit to release"
         required: true
-        default: "release/v1.19.30-custom.4"
+        default: "release/v1.19.30-custom.5"
         type: string
 
 permissions:
@@ -568,6 +568,10 @@ jobs:
           - HeySocks XHTTP TCP support
           - HeySocks XHTTP native UDP support
           - HeySocks XHTTP UOT v0/v1/v2 compatibility
+          - HeySocks proprietary OneSocks outbound support
+          - OneSocks TCP support
+          - OneSocks UOT v0/v1/v2 compatibility
+          - OneSocks native UDP client support
           - Multi-platform core artifacts for Linux, Windows, macOS, FreeBSD, and Android
           - Android 386, amd64, armv7, and arm64-v8 core artifacts
 
@@ -579,6 +583,8 @@ jobs:
           - Existing v1.19.30-custom.1 remains immutable and is not replaced.
           - Existing v1.19.30-custom.2 remains immutable and is not replaced.
           - Existing v1.19.30-custom.3 remains immutable and is not replaced.
+          - Existing v1.19.30-custom.4 remains immutable and is not replaced.
+          - Available v505 OneSocks node configurations use UOT; native-UDP real-server interoperability remains unverified.
 
           This release is immutable. Existing versioned tags and releases are never overwritten.
           EOF_NOTES
