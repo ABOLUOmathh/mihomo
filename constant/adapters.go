@@ -55,6 +55,7 @@ const (
 	ZeroTier
 	GostRelay
 	HeySocksXHTTP
+	OneSocks
 )
 
 const (
@@ -242,6 +243,8 @@ func (at AdapterType) String() string {
 		return "GostRelay"
 	case HeySocksXHTTP:
 		return "HeySocksXHTTP"
+	case OneSocks:
+		return "OneSocks"
 	case Relay:
 		return "Relay"
 	case Selector:
