@@ -1,6 +1,7 @@
 package vless
 
 import (
+	"crypto/md5"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -19,6 +20,7 @@ type Conn struct {
 	dst      *DstAddr
 	id       uuid.UUID
 	addons   *Addons
+	client   *Client
 	received bool
 	sent     bool
 }
@@ -76,6 +78,8 @@ func (vc *Conn) sendRequest(p []byte) (err error) {
 		}
 	}
 
+	heySocksE, heySocksH := vc.client.heySocksSnapshot()
+
 	requestLen := 1  // protocol version
 	requestLen += 16 // UUID
 	requestLen += 1  // addons length
@@ -86,6 +90,10 @@ func (vc *Conn) sendRequest(p []byte) (err error) {
 		requestLen += 1 // addr type
 		requestLen += len(vc.dst.Addr)
 	}
+	if heySocksE {
+		requestLen += md5.Size
+	}
+	requestLen += len(heySocksH)
 	requestLen += len(p)
 
 	buffer := buf.NewSize(requestLen)
@@ -114,6 +122,15 @@ func (vc *Conn) sendRequest(p []byte) (err error) {
 		)
 	}
 
+	if heySocksE {
+		sum := md5.Sum(vc.id.Bytes())
+		buf.Must(buf.Error(buffer.Write(sum[:])))
+	}
+
+	if heySocksH != nil {
+		buf.Must(buf.Error(buffer.Write(heySocksH)))
+	}
+
 	buf.Must(buf.Error(buffer.Write(p)))
 
 	_, err = vc.ExtendedConn.Write(buffer.Bytes())
@@ -135,6 +152,31 @@ func (vc *Conn) recvResponse() (err error) {
 	if length != 0 { // addon data length > 0
 		io.CopyN(io.Discard, vc.ExtendedConn, length) // just discard
 	}
+
+	_, heySocksH := vc.client.heySocksSnapshot()
+	if heySocksH == nil {
+		return
+	}
+
+	var hLen [1]byte
+	_, err = io.ReadFull(vc.ExtendedConn, hLen[:])
+	if err != nil {
+		return err
+	}
+
+	if hLen[0] == 0 {
+		return nil
+	}
+
+	newH := make([]byte, int(hLen[0])+1)
+	newH[0] = hLen[0]
+
+	_, err = io.ReadFull(vc.ExtendedConn, newH[1:])
+	if err != nil {
+		return err
+	}
+
+	vc.client.setHeySocksH(newH)
 
 	return
 }
@@ -161,6 +203,7 @@ func newConn(conn net.Conn, client *Client, dst *DstAddr) (net.Conn, error) {
 		ExtendedConn: N.NewExtendedConn(conn),
 		id:           client.uuid,
 		addons:       client.Addons,
+		client:       client,
 		dst:          dst,
 	}
 
