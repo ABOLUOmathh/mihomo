@@ -6,9 +6,9 @@ on:
   push:
     branches:
       - feat/heysocks-sharelink
-      - chore/custom-2-release-prep
-      - chore/custom-3-release-prep
-      - "sync/mihomo-*"
+      - "chore/custom-*-release-prep"
+      - "sync/**"
+      - "release/**"
     paths:
       - "**/*.go"
       - "go.mod"
@@ -19,8 +19,9 @@ on:
   pull_request:
     branches:
       - feat/heysocks-sharelink
-      - chore/custom-2-release-prep
-      - chore/custom-3-release-prep
+      - "chore/custom-*-release-prep"
+      - "sync/**"
+      - "release/**"
     paths:
       - "**/*.go"
       - "go.mod"
@@ -233,7 +234,7 @@ jobs:
         if: ${{ matrix.goos == 'android' }}
         uses: actions/upload-artifact@v7
         with:
-          name: custom3-smoke-${{ matrix.name }}
+          name: custom-smoke-${{ matrix.name }}
           path: /tmp/mihomo-${{ matrix.name }}
           if-no-files-found: error
           retention-days: 7
