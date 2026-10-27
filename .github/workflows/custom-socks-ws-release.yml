@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Immutable release tag, e.g. v1.19.32-custom.1"
+        description: "Immutable release tag, e.g. v1.19.33-custom.1"
         required: true
         type: string
 
       source_ref:
         description: "Custom source branch or commit to release"
         required: true
-        default: "release/v1.19.32-custom.1"
+        default: "release/v1.19.33-custom.1"
         type: string
 
 permissions:
@@ -590,6 +590,7 @@ jobs:
           - Existing v1.19.30-custom.5 remains immutable and is not replaced.
           - Existing v1.19.30-custom.6 remains immutable and is not replaced.
           - Existing v1.19.31-custom.1 remains immutable and is not replaced.
+          - Existing v1.19.32-custom.1 remains immutable and is not replaced.
           - HeySocks VLESS e/h is verified with a real v505 Reality/Vision node; standard VLESS remains unchanged when e/h is absent.
           - Available v505 OneSocks node configurations use UOT; native-UDP real-server interoperability remains unverified.
 
