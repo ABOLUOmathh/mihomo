@@ -145,6 +145,7 @@ require (
 	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.10.0 // indirect
 	golang.org/x/tools v0.24.0 // indirect
+	lukechampine.com/blake3 v1.1.7
 )
 
 // for https://github.com/golang/protobuf/issues/1704

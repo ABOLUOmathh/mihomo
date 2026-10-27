@@ -404,6 +404,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			}
 
 			name := uniqueName(names, urlSS.Fragment)
+			query := urlSS.Query()
 			port := urlSS.Port()
 
 			if port == "" {
@@ -412,8 +413,27 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 					continue
 				}
 
-				urlSS, err = url.Parse("ss://" + string(dcBuf))
-				if err != nil {
+				decoded := string(dcBuf)
+				separator := strings.LastIndexByte(decoded, '@')
+				if separator <= 0 || separator == len(decoded)-1 {
+					continue
+				}
+
+				userInfo := decoded[:separator]
+				hostPort := decoded[separator+1:]
+
+				decodedCipher, decodedPassword, ok := strings.Cut(userInfo, ":")
+				if !ok {
+					continue
+				}
+
+				urlSS = &url.URL{
+					Scheme: "ss",
+					User:   url.UserPassword(decodedCipher, decodedPassword),
+					Host:   hostPort,
+				}
+
+				if urlSS.Hostname() == "" || urlSS.Port() == "" {
 					continue
 				}
 			}
@@ -448,7 +468,6 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			ss["port"] = urlSS.Port()
 			ss["cipher"] = cipher
 			ss["password"] = password
-			query := urlSS.Query()
 			ss["udp"] = true
 			if query.Get("udp-over-tcp") == "true" || query.Get("uot") == "1" {
 				ss["udp-over-tcp"] = true
