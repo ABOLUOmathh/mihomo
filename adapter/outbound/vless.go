@@ -61,6 +61,8 @@ type VlessOption struct {
 	Server            string            `proxy:"server"`
 	Port              int               `proxy:"port"`
 	UUID              string            `proxy:"uuid"`
+	E                 bool              `proxy:"e,omitempty"`
+	H                 string            `proxy:"h,omitempty"`
 	Flow              string            `proxy:"flow,omitempty"`
 	TLS               bool              `proxy:"tls,omitempty"`
 	ALPN              []string          `proxy:"alpn,omitempty"`
@@ -487,6 +489,12 @@ func NewVless(option VlessOption) (*Vless, error) {
 	client, err := vless.NewClient(option.UUID, addons)
 	if err != nil {
 		return nil, err
+	}
+
+	if option.E || option.H != "" {
+		if err := client.ConfigureHeySocks(option.E, option.H); err != nil {
+			return nil, err
+		}
 	}
 
 	v := &Vless{

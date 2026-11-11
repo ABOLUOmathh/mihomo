@@ -13,7 +13,9 @@ import (
 	"github.com/metacubex/mihomo/component/ca"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/socks5"
+	mihomoVMess "github.com/metacubex/mihomo/transport/vmess"
 
+	"github.com/metacubex/http"
 	"github.com/metacubex/tls"
 )
 
@@ -29,29 +31,28 @@ type Socks5 struct {
 
 type Socks5Option struct {
 	BasicOption
-	Name           string `proxy:"name"`
-	Server         string `proxy:"server"`
-	Port           int    `proxy:"port"`
-	UserName       string `proxy:"username,omitempty"`
-	Password       string `proxy:"password,omitempty"`
-	TLS            bool   `proxy:"tls,omitempty"`
-	UDP            bool   `proxy:"udp,omitempty"`
-	SkipCertVerify bool   `proxy:"skip-cert-verify,omitempty"`
-	NameCertVerify string `proxy:"name-cert-verify,omitempty"`
-	Fingerprint    string `proxy:"fingerprint,omitempty"`
-	Certificate    string `proxy:"certificate,omitempty"`
-	PrivateKey     string `proxy:"private-key,omitempty"`
+	Name           string    `proxy:"name"`
+	Server         string    `proxy:"server"`
+	Port           int       `proxy:"port"`
+	UserName       string    `proxy:"username,omitempty"`
+	Password       string    `proxy:"password,omitempty"`
+	Network        string    `proxy:"network,omitempty"`
+	WSOpts         WSOptions `proxy:"ws-opts,omitempty"`
+	TLS            bool      `proxy:"tls,omitempty"`
+	UDP            bool      `proxy:"udp,omitempty"`
+	SkipCertVerify bool      `proxy:"skip-cert-verify,omitempty"`
+	NameCertVerify string    `proxy:"name-cert-verify,omitempty"`
+	Fingerprint    string    `proxy:"fingerprint,omitempty"`
+	Certificate    string    `proxy:"certificate,omitempty"`
+	PrivateKey     string    `proxy:"private-key,omitempty"`
 }
 
 // StreamConnContext implements C.ProxyAdapter
 func (ss *Socks5) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.Metadata) (net.Conn, error) {
-	if ss.tls {
-		cc := tls.Client(c, ss.tlsConfig)
-		err := cc.HandshakeContext(ctx)
-		c = cc
-		if err != nil {
-			return nil, fmt.Errorf("%s connect error: %w", ss.addr, err)
-		}
+	var err error
+	c, err = ss.streamTransportContext(ctx, c)
+	if err != nil {
+		return nil, err
 	}
 
 	var user *socks5.User
@@ -65,6 +66,55 @@ func (ss *Socks5) StreamConnContext(ctx context.Context, c net.Conn, metadata *C
 		return nil, err
 	}
 	return c, nil
+}
+
+func (ss *Socks5) streamTransportContext(ctx context.Context, c net.Conn) (net.Conn, error) {
+	switch ss.option.Network {
+	case "ws":
+		host, port, err := net.SplitHostPort(ss.addr)
+		if err != nil {
+			return nil, fmt.Errorf("%s parse address error: %w", ss.addr, err)
+		}
+
+		wsOpts := &mihomoVMess.WebsocketConfig{
+			Host:                     host,
+			Port:                     port,
+			Path:                     ss.option.WSOpts.Path,
+			MaxEarlyData:             ss.option.WSOpts.MaxEarlyData,
+			EarlyDataHeaderName:      ss.option.WSOpts.EarlyDataHeaderName,
+			V2rayHttpUpgrade:         ss.option.WSOpts.V2rayHttpUpgrade,
+			V2rayHttpUpgradeFastOpen: ss.option.WSOpts.V2rayHttpUpgradeFastOpen,
+			Headers:                  http.Header{},
+		}
+		for key, value := range ss.option.WSOpts.Headers {
+			wsOpts.Headers.Add(key, value)
+		}
+
+		if ss.tls {
+			wsOpts.TLS = true
+			wsOpts.TLSConfig = ss.tlsConfig
+		}
+
+		c, err = mihomoVMess.StreamWebsocketConn(ctx, c, wsOpts)
+		if err != nil {
+			return nil, fmt.Errorf("%s websocket connect error: %w", ss.addr, err)
+		}
+		return c, nil
+
+	case "", "tcp":
+		if ss.tls {
+			cc := tls.Client(c, ss.tlsConfig)
+			err := cc.HandshakeContext(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("%s connect error: %w", ss.addr, err)
+			}
+			c = cc
+		}
+		return c, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported socks5 network: %s", ss.option.Network)
+	}
 }
 
 // DialContext implements C.ProxyAdapter
@@ -88,6 +138,9 @@ func (ss *Socks5) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Co
 
 // ListenPacketContext implements C.ProxyAdapter
 func (ss *Socks5) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (_ C.PacketConn, err error) {
+	if ss.option.Network == "ws" {
+		return nil, errors.New("socks5 over websocket UDP is not supported yet")
+	}
 	if err = ss.ResolveUDP(ctx, metadata); err != nil {
 		return nil, err
 	}
